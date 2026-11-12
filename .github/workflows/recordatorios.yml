@@ -1,0 +1,33 @@
+name: Recordatorios
+
+# Envía recordatorios gratis al celular (app ntfy) y, opcionalmente, al correo.
+# Las horas están en UTC. Con Colombia/Perú/Ecuador (UTC-5):
+#   01:00 UTC = 8:00 p. m. de la víspera    14:00 UTC = 9:00 a. m.
+# Cambia los cron para tu zona horaria.
+on:
+  schedule:
+    - cron: '0 1 * * *'     # diario: registra tus gastos del día
+    - cron: '0 14 * * 0'    # domingos: reporte semanal
+    - cron: '0 14 1 * *'    # día 1: reporte mensual
+  workflow_dispatch:
+
+jobs:
+  recordar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar recordatorio
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          SCHEDULE: ${{ github.event.schedule }}
+          APP_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then echo "Falta el secreto NTFY_TOPIC"; exit 1; fi
+          case "$SCHEDULE" in
+            "0 14 * * 0") TITLE="Tu reporte semanal está listo"; MSG="Revisa en qué se fue tu semana y las recomendaciones para la próxima." ;;
+            "0 14 1 * *") TITLE="Tu reporte mensual está listo"; MSG="Cierra el mes: mira cuánto ahorraste y qué ajustar este mes." ;;
+            *)            TITLE="¿Ya registraste tus gastos de hoy?"; MSG="Toma 30 segundos: anota lo que gastaste o recibiste hoy." ;;
+          esac
+          PAYLOAD=$(jq -n --arg topic "$NTFY_TOPIC" --arg title "$TITLE" --arg msg "$MSG" --arg click "$APP_URL" --arg email "$NOTIFY_EMAIL" \
+            '{topic:$topic,title:$title,message:$msg,click:$click,tags:["moneybag"]} + (if $email != "" then {email:$email} else {} end)')
+          curl -fsS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" https://ntfy.sh/
