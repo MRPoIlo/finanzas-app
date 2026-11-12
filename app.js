@@ -440,7 +440,7 @@ function settingsView() {
       <div class="two"><button class="btn ghost sm" data-action="export">${icon('download', 'sm')}Exportar</button><label class="btn ghost sm" style="cursor:pointer">${icon('upload', 'sm')}Importar<input type="file" accept="application/json" hidden data-change="import"></label></div>
       <button class="btn danger sm" data-action="wipe">${icon('trash', 'sm')}Borrar todos los datos</button>
     </section>
-    <p class="help" style="text-align:center">Bolsillo · funciona sin conexión</p>`;
+    <p class="help" style="text-align:center">Bolsillo v3 · funciona sin conexión</p>`;
 }
 
 /* ============ Informe descargable ============ */
@@ -643,5 +643,9 @@ document.addEventListener('keydown', (e) => {
 
 /* ============ Arranque ============ */
 render();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator) {
+  const had = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) location.reload(); });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});
+}
 })();
