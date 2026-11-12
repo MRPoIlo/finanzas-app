@@ -42,7 +42,41 @@ jobs:
           echo "== Push al celular =="
           send "$BASE" | tee /tmp/push.txt
           grep -q 'HTTP 200' /tmp/push.txt || exit 1
-          { echo "TITLE=$TITLE"; echo "MSG=$MSG"; } >> "$GITHUB_ENV"
+          TIPS=(
+            "Anota cada gasto apenas ocurra: lo que no se mide, no se puede mejorar."
+            "Págate primero: separa tu ahorro el día que recibes tus ingresos, antes de gastar."
+            "Espera 24 horas antes de una compra no planeada. Muchos antojos se desvanecen."
+            "Los gastos pequeños y repetidos (café, domicilios) suelen pesar más que una compra grande."
+            "Revisa tus suscripciones: cancela las que no usaste el último mes."
+            "Un fondo de emergencia de 3 meses de gastos te da tranquilidad ante imprevistos."
+            "La regla 50/30/20: 50% necesidades, 30% gustos y 20% ahorro. Úsala como referente."
+            "Compara tu gasto semanal con el de la semana pasada: los cambios cuentan la historia."
+            "Antes de comprar a cuotas, calcula cuánto pagarás en total, no solo la cuota."
+            "Define un tope diario de gasto: es más fácil cumplir un número pequeño que uno mensual."
+            "Pagar primero la deuda más cara ahorra más intereses que repartir pagos parejos."
+            "Cada ingreso extra es una oportunidad: destina al menos la mitad a tu meta de ahorro."
+          )
+          TIP="${TIPS[$(( 10#$(date +%j) % ${#TIPS[@]} ))]}"
+          case "$SCHEDULE" in
+            "0 14 * * 0") BTN="Ver mi reporte semanal" ;;
+            "0 14 1 * *") BTN="Ver mi reporte mensual" ;;
+            *)            BTN="Registrar mis gastos" ;;
+          esac
+          FONT="-apple-system,Helvetica Neue,Arial,sans-serif"
+          HTML="<!doctype html><html lang='es'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='color-scheme' content='light'></head>
+          <body style='margin:0;padding:0;background:#F4F1E8;'>
+          <table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='background:#F4F1E8;'><tr><td align='center' style='padding:28px 16px;'>
+          <table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:520px;'>
+          <tr><td style='padding:0 4px 16px;font:700 20px/1 $FONT;color:#0E5C44;'>Bolsillo</td></tr>
+          <tr><td style='background:#ffffff;border-radius:20px;padding:32px 28px;'>
+          <h1 style='margin:0 0 12px;font:700 26px/1.2 $FONT;color:#14201A;'>$TITLE</h1>
+          <p style='margin:0 0 24px;font:400 16px/1.55 $FONT;color:#4B5851;'>$MSG</p>
+          <table role='presentation' cellpadding='0' cellspacing='0'><tr><td style='background:#0E6B4D;border-radius:14px;'><a href='$APP_URL' style='display:inline-block;padding:15px 26px;font:600 16px/1 $FONT;color:#ffffff;text-decoration:none;'>$BTN</a></td></tr></table>
+          <table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='margin-top:28px;'><tr><td style='background:#E9F3EC;border-radius:14px;padding:16px 18px;font:400 15px/1.5 $FONT;color:#14201A;'><strong style='color:#0E5C44;'>Consejo del día</strong><br>$TIP</td></tr></table>
+          </td></tr>
+          <tr><td style='padding:16px 8px 0;font:400 12px/1.5 $FONT;color:#6E7A73;text-align:center;'>Recibes este correo porque activaste los recordatorios de Bolsillo.<br>Tus gastos e informes están solo en tu celular.</td></tr>
+          </table></td></tr></table></body></html>"
+          { echo "TITLE=$TITLE"; echo "MSG=$MSG"; echo "HTML<<__HTML_EOF__"; echo "$HTML"; echo "__HTML_EOF__"; } >> "$GITHUB_ENV"
 
       - name: Enviar correo (Gmail)
         if: ${{ env.GMAIL_APP_PASSWORD != '' && env.SMTP_USER != '' && env.NOTIFY_EMAIL != '' }}
@@ -56,7 +90,5 @@ jobs:
           subject: ${{ env.TITLE }}
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: Bolsillo <${{ secrets.SMTP_USER }}>
-          body: |
-            ${{ env.MSG }}
-
-            Abre Bolsillo: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          body: ${{ env.MSG }}
+          html_body: ${{ env.HTML }}

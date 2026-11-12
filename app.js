@@ -25,6 +25,7 @@ const INC = {
   otros:     { n: 'Otros',          i: 'dots' },
 };
 
+const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const defState = () => ({ tx: [], settings: { currency: 'USD', goal: 0, topic: '', hintDismissed: false } });
 let S = load();
 const ui = { tab: 'home', filter: 'all', lOff: 0, rKind: 'month', rOff: 0, first: true };
@@ -216,12 +217,46 @@ function insights(p) {
   const big = [...exp].sort((a, b) => b.amount - a.amount)[0];
   if (big.amount / spent >= 0.3 && exp.length >= 4) push('info', `Un solo gasto pesa el ${Math.round(big.amount / spent * 100)}%`, `${fmt(big.amount)} en ${cat(big.cat).toLowerCase()}${big.note ? ` («${big.note}»)` : ''}. Los gastos grandes conviene planearlos con un fondo aparte.`, 1);
 
+  // 9b. Día de la semana dominante
+  if (p.kind === 'month' && p.n >= 14) {
+    const wd = [0, 0, 0, 0, 0, 0, 0]; exp.forEach((t) => { wd[pd(t.date).getDay()] += t.amount; });
+    const i = wd.indexOf(Math.max(...wd)); const sh = wd[i] / spent;
+    if (sh >= 0.25 && i !== 0 && i !== 6) push('info', `Los ${DIAS[i]} concentran el ${Math.round(sh * 100)}% de tu gasto`, `Un solo día de la semana pesa más que cualquier otro. Si identificas por qué (compras recurrentes, salidas), es el punto más fácil de ajustar.`, 2);
+  }
+  // 9c. Tasa de ahorro
+  if (income > 0 && p.kind === 'month') {
+    const rate = (income - spent) / income;
+    if (rate < 0.1) push('warn', `Tu tasa de ahorro es de ${Math.round(rate * 100)}%`, 'Por debajo de 10% queda poco margen ante imprevistos. Apunta primero a un fondo de emergencia de 3 meses de gastos.', 5);
+    else if (rate >= 0.2 && !goal) push('good', `Estás ahorrando el ${Math.round(rate * 100)}% de tus ingresos`, 'Superas el referente de 20%. Convierte esto en una meta mensual en Ajustes para protegerlo.', 2);
+  }
+
   // 10. Hábito de registro
   const days = new Set(exp.map((t) => t.date)).size;
   if (p.n >= 5 && days / p.n < 0.5) push('info', `Registraste gastos en ${days} de ${p.n} días`, 'Si olvidas anotar, el reporte subestima tu gasto. Activa el recordatorio diario en Ajustes.', 1);
 
   out.sort((a, b) => ({ warn: 0, info: 1, good: 2 }[a.tone] - { warn: 0, info: 1, good: 2 }[b.tone]) || b.w - a.w);
   return out.slice(0, 6);
+}
+
+/* ============ Números clave del periodo ============ */
+function stats(p) {
+  const exp = txIn(p.start, p.end, 'expense'), inc = txIn(p.start, p.end, 'income');
+  const spent = total(exp), income = total(inc);
+  const rows = [];
+  if (!spent) return rows;
+  const byDay = {}; exp.forEach((t) => { byDay[t.date] = (byDay[t.date] || 0) + t.amount; });
+  const top = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0];
+  const wd = [0, 0, 0, 0, 0, 0, 0]; exp.forEach((t) => { wd[pd(t.date).getDay()] += t.amount; });
+  rows.push(['Promedio diario', fmt(spent / p.n)]);
+  rows.push(['Día de mayor gasto', `${shortDay(pd(top[0]))} · ${fmt(top[1])}`]);
+  rows.push(['Día de la semana más caro', DIAS[wd.indexOf(Math.max(...wd))]]);
+  rows.push(['Movimientos de gasto', String(exp.length)]);
+  if (income > 0) rows.push(['Tasa de ahorro', `${Math.round(((income - spent) / income) * 100)}% de tus ingresos`]);
+  if (p.kind === 'month' && !p.full) {
+    const t = today(); const dim = daysInMonth(t.getFullYear(), t.getMonth());
+    rows.push(['Gasto proyectado al cierre', fmt((spent / p.n) * dim)]);
+  }
+  return rows;
 }
 
 /* ============ Vistas ============ */
@@ -345,17 +380,19 @@ function reportView() {
   };
   const tips = insights(p);
   return `
-    <div class="top"><h1>Reporte</h1><button class="btn ghost sm" data-action="share-report">${icon('share', 'sm')}Compartir</button></div>
+    <div class="top"><h1>Reporte</h1></div>
     <div class="seg" role="group" aria-label="Tipo de reporte">
       <button data-action="r-kind" data-k="week" aria-pressed="${ui.rKind === 'week'}">Semanal</button>
       <button data-action="r-kind" data-k="month" aria-pressed="${ui.rKind === 'month'}">Mensual</button>
     </div>
     <div class="nav"><button data-action="r-prev" aria-label="Periodo anterior">${icon('chev-l')}</button><span class="lbl">${esc(p.label)}</span><button data-action="r-next" aria-label="Periodo siguiente" ${ui.rOff >= 0 ? 'disabled' : ''}>${icon('chev-r')}</button></div>
+    <div class="two"><button class="btn ghost sm" data-action="share-report">${icon('share', 'sm')}Compartir</button><button class="btn sm" data-action="download-report">${icon('download', 'sm')}Descargar</button></div>
     <section class="panel"><div class="ledger num">
       <div><span class="muted">Ingresos</span><span class="in">+${fmt(income)}</span></div>
       <div><span class="muted">Gastos ${prevSpent ? deltaTag(spent, prevSpent) : ''}</span><span class="out">−${fmt(spent)}</span></div>
       <div><span class="muted">Balance</span><span class="${income - spent >= 0 ? 'in' : 'out'}">${income - spent >= 0 ? '+' : '−'}${fmt(Math.abs(income - spent))}</span></div>
     </div>${prevSpent ? `<p class="help" style="margin-top:8px">Comparado con el ${p.kind === 'month' ? 'mismo punto del mes anterior' : 'mismo punto de la semana anterior'} (${fmt(prevSpent)}).</p>` : ''}</section>
+    ${stats(p).length ? `<section><div class="section-head"><h2>Tus números</h2></div><div class="panel"><div class="ledger">${stats(p).map(([k, v]) => `<div><span class="muted">${k}</span><span class="num" style="font-weight:600;text-align:right">${esc(v)}</span></div>`).join('')}</div></div></section>` : ''}
     <section>
       <div class="section-head"><h2>Recomendaciones</h2></div>
       <div class="tips">${tips.map((t) => `<div class="tip ${t.tone}"><span class="chip-ic">${icon(t.tone === 'warn' ? 'warn' : t.tone === 'good' ? 'ok' : 'bulb')}</span><div><h3>${esc(t.title)}</h3><p>${esc(t.body)}</p></div></div>`).join('')}</div>
@@ -404,6 +441,23 @@ function settingsView() {
       <button class="btn danger sm" data-action="wipe">${icon('trash', 'sm')}Borrar todos los datos</button>
     </section>
     <p class="help" style="text-align:center">Bolsillo · funciona sin conexión</p>`;
+}
+
+/* ============ Informe descargable ============ */
+function reportHtml(p) {
+  const exp = txIn(p.start, p.end, 'expense'), inc = txIn(p.start, p.end, 'income');
+  const spent = total(exp), income = total(inc), cats = byCat(exp);
+  const rows = Object.entries(cats).sort((a, b) => b[1] - a[1]); const max = rows[0]?.[1] || 1;
+  const kind = p.kind === 'month' ? 'mensual' : 'semanal';
+  const tone = { warn: '#B4400E', good: '#0E6B4D', info: '#4B5851' };
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Informe ${kind} · ${esc(p.label)}</title>
+<style>body{margin:0;background:#F4F1E8;color:#14201A;font:16px/1.55 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif}main{max-width:640px;margin:0 auto;padding:32px 20px 48px}h1{font-size:28px;line-height:1.15;margin:0 0 4px;letter-spacing:-.02em}h2{font-size:18px;margin:32px 0 10px}.sub{color:#4B5851;margin:0 0 24px}.card{background:#fff;border-radius:16px;padding:6px 18px}.r{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-top:1px solid #E6E1D2}.r:first-child{border-top:0}.in{color:#0E6B4D;font-weight:600}.tip{background:#fff;border-radius:16px;padding:14px 18px;margin-bottom:10px}.tip b{display:block;margin-bottom:2px}.tip span{color:#4B5851;font-size:15px}.bar{height:7px;border-radius:9px;background:#ECE8DC;margin:6px 0 2px}.bar i{display:block;height:100%;border-radius:9px;background:#0E6B4D}.foot{margin-top:36px;color:#6E7A73;font-size:13px}@media print{body{background:#fff}.card,.tip{border:1px solid #ddd}}</style></head><body><main>
+<h1>Informe ${kind}</h1><p class="sub">${esc(p.label)}</p>
+<div class="card"><div class="r"><span>Ingresos</span><span class="in">+${esc(fmt(income))}</span></div><div class="r"><span>Gastos</span><b>−${esc(fmt(spent))}</b></div><div class="r"><span>Balance</span><b>${income - spent >= 0 ? '+' : '−'}${esc(fmt(Math.abs(income - spent)))}</b></div></div>
+${stats(p).length ? `<h2>Tus números</h2><div class="card">${stats(p).map(([k, v]) => `<div class="r"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>` : ''}
+<h2>Recomendaciones</h2>${insights(p).map((t) => `<div class="tip"><b style="color:${tone[t.tone]}">${esc(t.title)}</b><span>${esc(t.body)}</span></div>`).join('')}
+<h2>En qué se fue</h2><div class="card">${rows.map(([c, v]) => `<div style="padding:11px 0;border-top:1px solid #E6E1D2"><div style="display:flex;justify-content:space-between"><span>${esc(CATS[c]?.n || c)}</span><b>${esc(fmt(v))}</b></div><div class="bar"><i style="width:${(v / max) * 100}%"></i></div><small style="color:#6E7A73">${Math.round((v / spent) * 100)}% del gasto</small></div>`).join('') || '<div class="r">Sin gastos en este periodo.</div>'}</div>
+<p class="foot">Generado con Bolsillo el ${esc(new Date().toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }))}. Para guardarlo como PDF, ábrelo en Safari y usa Compartir → Imprimir.</p></main></body></html>`;
 }
 
 /* ============ Hoja de captura ============ */
@@ -540,6 +594,14 @@ const actions = {
   },
   wipe: () => {
     if (confirm('¿Borrar todos tus movimientos y ajustes? Esta acción no se puede deshacer.')) { S = defState(); save(); render(); toast('Datos borrados'); }
+  },
+  'download-report': async () => {
+    const p = period(ui.rKind, ui.rOff);
+    const name = `bolsillo-informe-${ui.rKind === 'month' ? 'mensual' : 'semanal'}-${ymd(p.start)}.html`;
+    const file = new File([reportHtml(p)], name, { type: 'text/html' });
+    try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: 'Informe Bolsillo' }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast('Informe descargado');
   },
   'share-report': async () => {
     const p = period(ui.rKind, ui.rOff);
