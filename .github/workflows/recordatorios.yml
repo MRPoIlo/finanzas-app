@@ -28,6 +28,17 @@ jobs:
             "0 14 1 * *") TITLE="Tu reporte mensual está listo"; MSG="Cierra el mes: mira cuánto ahorraste y qué ajustar este mes." ;;
             *)            TITLE="¿Ya registraste tus gastos de hoy?"; MSG="Toma 30 segundos: anota lo que gastaste o recibiste hoy." ;;
           esac
-          PAYLOAD=$(jq -n --arg topic "$NTFY_TOPIC" --arg title "$TITLE" --arg msg "$MSG" --arg click "$APP_URL" --arg email "$NOTIFY_EMAIL" \
-            '{topic:$topic,title:$title,message:$msg,click:$click,tags:["moneybag"]} + (if $email != "" then {email:$email} else {} end)')
-          curl -fsS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" https://ntfy.sh/
+          NTFY_TOPIC=$(printf '%s' "$NTFY_TOPIC" | tr -d '[:space:]')
+          NOTIFY_EMAIL=$(printf '%s' "$NOTIFY_EMAIL" | tr -d '[:space:]')
+          send() {
+            curl -sS -w '\nHTTP %{http_code}\n' -X POST -H "Content-Type: application/json" -d "$1" https://ntfy.sh/
+          }
+          BASE=$(jq -n --arg topic "$NTFY_TOPIC" --arg title "$TITLE" --arg msg "$MSG" --arg click "$APP_URL" \
+            '{topic:$topic,title:$title,message:$msg,click:$click,tags:["moneybag"]}')
+          echo "== Push al celular =="
+          send "$BASE" | tee /tmp/push.txt
+          grep -q 'HTTP 200' /tmp/push.txt || exit 1
+          if [ -n "$NOTIFY_EMAIL" ]; then
+            echo "== Correo =="
+            send "$(echo "$BASE" | jq --arg e "$NOTIFY_EMAIL" '. + {email:$e}')" || true
+          fi
