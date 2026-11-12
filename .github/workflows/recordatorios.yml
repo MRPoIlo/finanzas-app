@@ -14,6 +14,9 @@ on:
 jobs:
   recordar:
     runs-on: ubuntu-latest
+    env:
+      NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+      GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
     steps:
       - name: Enviar recordatorio
         env:
@@ -38,7 +41,21 @@ jobs:
           echo "== Push al celular =="
           send "$BASE" | tee /tmp/push.txt
           grep -q 'HTTP 200' /tmp/push.txt || exit 1
-          if [ -n "$NOTIFY_EMAIL" ]; then
-            echo "== Correo =="
-            send "$(echo "$BASE" | jq --arg e "$NOTIFY_EMAIL" '. + {email:$e}')" || true
-          fi
+          { echo "TITLE=$TITLE"; echo "MSG=$MSG"; } >> "$GITHUB_ENV"
+
+      - name: Enviar correo (Gmail)
+        if: ${{ env.GMAIL_APP_PASSWORD != '' && env.NOTIFY_EMAIL != '' }}
+        uses: dawidd6/action-send-mail@v3.12.0
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.NOTIFY_EMAIL }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: ${{ env.TITLE }}
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: Bolsillo <${{ secrets.NOTIFY_EMAIL }}>
+          body: |
+            ${{ env.MSG }}
+
+            Abre Bolsillo: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
